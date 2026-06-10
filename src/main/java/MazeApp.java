@@ -2,8 +2,6 @@ import org.json.JSONObject;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -14,26 +12,22 @@ import java.util.List;
 
 public class MazeApp extends JFrame {
 
-    // אזורי ממשק משתמש (UI)
     private JLabel lblWallColor, lblPathColor, lblDrawGrid, lblGridColor, lblAnimDelay;
     private JTextField txtWidth, txtHeight;
     private JButton btnRefreshConfig, btnGetMaze, btnCheckSolution;
     private MazePanel mazePanel;
     private JScrollPane scrollPane;
 
-    // נתוני קונפיגורציה מהשרת
     private Color wallCellColor = Color.BLACK;
     private Color pathColor = Color.GREEN;
     private boolean drawGrid = false;
     private Color gridColor = Color.LIGHT_GRAY;
     private int animationDelayMs = 50;
 
-    // נתוני המבוך
     private int mazeWidth = 30;
     private int mazeHeight = 30;
     private boolean[][] mazeMatrix;
 
-    // ניהול האנימציה והפתרון
     private List<Point> solutionPath = new ArrayList<>();
     private List<Point> animatedPath = new ArrayList<>();
     private Timer animationTimer;
@@ -47,9 +41,8 @@ public class MazeApp extends JFrame {
         initControlPanel();
 
         mazePanel = new MazePanel();
-        mazePanel.setAnimatedPath(animatedPath); // קישור הרשימה הדינמית לפאנל
+        mazePanel.setAnimatedPath(animatedPath);
 
-        // עטיפת ה-mazePanel בתוך JPanel מרכזי
         JPanel centerWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         centerWrapper.setBackground(Color.DARK_GRAY);
         centerWrapper.add(mazePanel);
@@ -97,9 +90,9 @@ public class MazeApp extends JFrame {
         btnGetMaze.addActionListener(e -> fetchMazeImage());
 
         actionPanel.add(btnRefreshConfig);
-        actionPanel.add(new JLabel("  |  רוחב (width):"));
+        actionPanel.add(new JLabel("  |  width:"));
         actionPanel.add(txtWidth);
-        actionPanel.add(new JLabel("גובה (height):"));
+        actionPanel.add(new JLabel("height:"));
         actionPanel.add(txtHeight);
         actionPanel.add(btnGetMaze);
 
@@ -151,8 +144,8 @@ public class MazeApp extends JFrame {
                     lblGridColor.setText("צבע רשת: " + gridHex);
                     lblAnimDelay.setText("זמן אנימציה: " + animationDelayMs + "ms");
 
-                    // עדכון הגדרת הצבע ישירות לרכיב הפאנל
-                    mazePanel.setPathColor(pathColor);
+                    // מעדכן את הפאנל בנתוני העיצוב מהשרת
+                    mazePanel.setConfig(wallCellColor, pathColor, drawGrid, gridColor);
                     mazePanel.repaint();
                 }
             } catch (Exception ex) {
@@ -187,30 +180,35 @@ public class MazeApp extends JFrame {
                     int imgWidth = img.getWidth();
                     int imgHeight = img.getHeight();
 
-                    mazeMatrix = new boolean[imgHeight][imgWidth];
+                    mazeMatrix = new boolean[mazeHeight][mazeWidth];
+                    double cellW = (double) imgWidth / mazeWidth;
+                    double cellH = (double) imgHeight / mazeHeight;
 
-                    for (int y = 0; y < imgHeight; y++) {
-                        for (int x = 0; x < imgWidth; x++) {
-                            int rgb = img.getRGB(x, y);
+                    for (int y = 0; y < mazeHeight; y++) {
+                        for (int x = 0; x < mazeWidth; x++) {
+                            int pixelX = (int) (x * cellW + cellW / 2);
+                            int pixelY = (int) (y * cellH + cellH / 2);
+
+                            pixelX = Math.min(pixelX, imgWidth - 1);
+                            pixelY = Math.min(pixelY, imgHeight - 1);
+
+                            int rgb = img.getRGB(pixelX, pixelY);
                             int red = (rgb >> 16) & 0xFF;
                             int green = (rgb >> 8) & 0xFF;
                             int blue = rgb & 0xFF;
 
-                            // לבן = מעבר (true), אחרת = קיר (false)
-                            mazeMatrix[y][x] = (red == 255 && green == 255 && blue == 255);
+                            // לבן = true (מעבר), כל צבע אחר = false (קיר)
+                            mazeMatrix[y][x] = (red > 200 && green > 200 && blue > 200);
                         }
                     }
 
                     SwingUtilities.invokeLater(() -> {
-                        mazePanel.setMazeData(img, mazeMatrix);
+                        mazePanel.setMazeData(mazeMatrix);
                         mazePanel.updatePanelSize();
                         btnCheckSolution.setEnabled(true);
                         mazePanel.repaint();
                         pack();
                     });
-
-                } else {
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "לא ניתן היה לקרוא את התמונה מהשרת."));
                 }
             } catch (Exception ex) {
                 ex.printStackTrace();
@@ -222,10 +220,10 @@ public class MazeApp extends JFrame {
     private int parseInputSize(String text) {
         try {
             int val = Integer.parseInt(text.trim());
-            if (val < 5 || val > 100) return 30;
+            if (val < 5 || val > 100) return 30; // ברירת מחדל אם הערך חורג
             return val;
         } catch (NumberFormatException e) {
-            return 30;
+            return 30; // ברירת מחדל אם הקלט אינו מספר
         }
     }
 
@@ -235,17 +233,13 @@ public class MazeApp extends JFrame {
         int rows = mazeMatrix.length;
         int cols = mazeMatrix[0].length;
 
-        int startX = 0, startY = 0;
-        while (startX < cols && !mazeMatrix[0][startX]) startX++;
-        if (startX == cols) startX = 0;
-
-        if (!mazeMatrix[startY][startX]) {
-            JOptionPane.showMessageDialog(this, "נקודת ההתחלה של המבוך חסומה בתמונה!");
+        // בדיקה: אם ההתחלה (0,0) או הסיום (width-1, height-1) הם קירות
+        if (!mazeMatrix[0][0] || !mazeMatrix[rows - 1][cols - 1]) {
+            JOptionPane.showMessageDialog(this, "No solution found");
             return;
         }
 
-        // שימוש במחלקה המופרדת לפתרון המבוך
-        List<Point> path = MazeSolver.findShortestPath(startY, startX, rows, cols, mazeMatrix);
+        List<Point> path = MazeSolver.findShortestPath(0, 0, rows, cols, mazeMatrix);
 
         if (path == null || path.isEmpty()) {
             JOptionPane.showMessageDialog(this, "No solution found");
@@ -254,31 +248,23 @@ public class MazeApp extends JFrame {
 
         solutionPath = path;
         animatedPath.clear();
+        mazePanel.repaint(); // מנקה מסלול קודם אם היה
+
         isAnimating = true;
         btnCheckSolution.setEnabled(false);
         btnRefreshConfig.setEnabled(false);
         btnGetMaze.setEnabled(false);
 
-        int skipRatio = Math.max(1, solutionPath.size() / 150);
-
-        animationTimer = new Timer(animationDelayMs, new ActionListener() {
-            private int currentIndex = 0;
-
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (currentIndex < solutionPath.size()) {
-                    for (int i = 0; i < skipRatio && currentIndex < solutionPath.size(); i++) {
-                        animatedPath.add(solutionPath.get(currentIndex));
-                        currentIndex++;
-                    }
-                    mazePanel.repaint();
-                } else {
-                    animationTimer.stop();
-                    isAnimating = false;
-                    btnCheckSolution.setEnabled(true);
-                    btnRefreshConfig.setEnabled(true);
-                    btnGetMaze.setEnabled(true);
-                }
+        animationTimer = new Timer(animationDelayMs, e -> {
+            if (animatedPath.size() < solutionPath.size()) {
+                animatedPath.add(solutionPath.get(animatedPath.size()));
+                mazePanel.repaint();
+            } else {
+                animationTimer.stop();
+                isAnimating = false;
+                btnCheckSolution.setEnabled(true);
+                btnRefreshConfig.setEnabled(true);
+                btnGetMaze.setEnabled(true);
             }
         });
 

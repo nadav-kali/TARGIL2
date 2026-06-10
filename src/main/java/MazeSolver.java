@@ -24,8 +24,8 @@ public class MazeSolver {
         while (!queue.isEmpty()) {
             Point curr = queue.poll();
 
-            // הגעה לקצה (פתרון)
-            if (curr.y == rows - 1 || curr.x == cols - 1) {
+            // הגעה מדויקת לנקודת הסיום (width-1, height-1)
+            if (curr.y == rows - 1 && curr.x == cols - 1) {
                 found = true;
                 endPoint = curr;
                 break;
@@ -47,7 +47,6 @@ public class MazeSolver {
 
         if (!found) return null;
 
-        // שחזור המסלול מהסוף להתחלה
         List<Point> actualPath = new ArrayList<>();
         Point curr = endPoint;
         while (curr != null) {
